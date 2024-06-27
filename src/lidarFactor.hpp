@@ -14,11 +14,13 @@ struct LidarEdgeFactor
 	LidarEdgeFactor(Eigen::Vector3d curr_point_, Eigen::Vector3d last_point_a_,
 					Eigen::Vector3d last_point_b_, double s_)
 		: curr_point(curr_point_), last_point_a(last_point_a_), last_point_b(last_point_b_), s(s_) {}
-
+	 //模板函数
 	template <typename T>
+	 //重载（）运算符
+	 
 	bool operator()(const T *q, const T *t, T *residual) const
 	{
-
+		//将double数组转成eigen的数据结构 注意这里必须都写成模板
 		Eigen::Matrix<T, 3, 1> cp{T(curr_point.x()), T(curr_point.y()), T(curr_point.z())};
 		Eigen::Matrix<T, 3, 1> lpa{T(last_point_a.x()), T(last_point_a.y()), T(last_point_a.z())};
 		Eigen::Matrix<T, 3, 1> lpb{T(last_point_b.x()), T(last_point_b.y()), T(last_point_b.z())};
@@ -26,28 +28,35 @@ struct LidarEdgeFactor
 		//Eigen::Quaternion<T> q_last_curr{q[3], T(s) * q[0], T(s) * q[1], T(s) * q[2]};
 		Eigen::Quaternion<T> q_last_curr{q[3], q[0], q[1], q[2]};
 		Eigen::Quaternion<T> q_identity{T(1), T(0), T(0), T(0)};
+		//计算的是上一帧到当前帧的位姿变换 因此根据匀速模型 计算该点对应的位姿
+		//这里暂时不考虑畸变 因此这里不做变换
 		q_last_curr = q_identity.slerp(T(s), q_last_curr);
 		Eigen::Matrix<T, 3, 1> t_last_curr{T(s) * t[0], T(s) * t[1], T(s) * t[2]};
 
 		Eigen::Matrix<T, 3, 1> lp;
+		//把当前点根据当前计算的帧间位姿变换到上一帧
 		lp = q_last_curr * cp + t_last_curr;
 
-		Eigen::Matrix<T, 3, 1> nu = (lp - lpa).cross(lp - lpb);
+		Eigen::Matrix<T, 3, 1> nu = (lp - lpa).cross(lp - lpb);//模是三角形的面积
 		Eigen::Matrix<T, 3, 1> de = lpa - lpb;
 
+		//残差的模的该点到底边的垂线长度
+		//这里感觉不需要定义三维
 		residual[0] = nu.x() / de.norm();
 		residual[1] = nu.y() / de.norm();
 		residual[2] = nu.z() / de.norm();
 
 		return true;
 	}
-
+		//create 和 ceres中的自动求导一样
 	static ceres::CostFunction *Create(const Eigen::Vector3d curr_point_, const Eigen::Vector3d last_point_a_,
 									   const Eigen::Vector3d last_point_b_, const double s_)
 	{
+		//是模板类
+		//一个参数也是一个模板类LidarEdgeFactor，第二个参数3是T *residual的残差维度 第三个参数4是const T *q的维度 第4个参数是const T *t的维度
 		return (new ceres::AutoDiffCostFunction<
 				LidarEdgeFactor, 3, 4, 3>(
-			new LidarEdgeFactor(curr_point_, last_point_a_, last_point_b_, s_)));
+			new LidarEdgeFactor(curr_point_, last_point_a_, last_point_b_, s_)));//new出新的对象输入构造函数的参数
 	}
 
 	Eigen::Vector3d curr_point, last_point_a, last_point_b;
@@ -61,7 +70,9 @@ struct LidarPlaneFactor
 		: curr_point(curr_point_), last_point_j(last_point_j_), last_point_l(last_point_l_),
 		  last_point_m(last_point_m_), s(s_)
 	{
+		// 求出平面（三个点构成的平面）的法向量
 		ljm_norm = (last_point_j - last_point_l).cross(last_point_j - last_point_m);
+		//求出法向量的单位向量
 		ljm_norm.normalize();
 	}
 
@@ -70,7 +81,7 @@ struct LidarPlaneFactor
 	{
 
 		Eigen::Matrix<T, 3, 1> cp{T(curr_point.x()), T(curr_point.y()), T(curr_point.z())};
-		Eigen::Matrix<T, 3, 1> lpj{T(last_point_j.x()), T(last_point_j.y()), T(last_point_j.z())};
+		Eigen::Matrix<T, 3, 1> lpj{T(last_point_j.x()), T(last_point_j.y()), T(last_point_j.z())};//上一帧的某个点
 		//Eigen::Matrix<T, 3, 1> lpl{T(last_point_l.x()), T(last_point_l.y()), T(last_point_l.z())};
 		//Eigen::Matrix<T, 3, 1> lpm{T(last_point_m.x()), T(last_point_m.y()), T(last_point_m.z())};
 		Eigen::Matrix<T, 3, 1> ljm{T(ljm_norm.x()), T(ljm_norm.y()), T(ljm_norm.z())};
@@ -78,12 +89,13 @@ struct LidarPlaneFactor
 		//Eigen::Quaternion<T> q_last_curr{q[3], T(s) * q[0], T(s) * q[1], T(s) * q[2]};
 		Eigen::Quaternion<T> q_last_curr{q[3], q[0], q[1], q[2]};
 		Eigen::Quaternion<T> q_identity{T(1), T(0), T(0), T(0)};
+		//根据时间戳进行一个插值
 		q_last_curr = q_identity.slerp(T(s), q_last_curr);
 		Eigen::Matrix<T, 3, 1> t_last_curr{T(s) * t[0], T(s) * t[1], T(s) * t[2]};
-
+        //把当前点根据当前计算的帧间位姿变换到上一帧
 		Eigen::Matrix<T, 3, 1> lp;
 		lp = q_last_curr * cp + t_last_curr;
-
+		//点到面的距离  维度是1-
 		residual[0] = (lp - lpj).dot(ljm);
 
 		return true;
@@ -117,10 +129,10 @@ struct LidarPlaneNormFactor
 		Eigen::Matrix<T, 3, 1> t_w_curr{t[0], t[1], t[2]};
 		Eigen::Matrix<T, 3, 1> cp{T(curr_point.x()), T(curr_point.y()), T(curr_point.z())};
 		Eigen::Matrix<T, 3, 1> point_w;
-		point_w = q_w_curr * cp + t_w_curr;
+		point_w = q_w_curr * cp + t_w_curr;//投影到地图坐标上
 
 		Eigen::Matrix<T, 3, 1> norm(T(plane_unit_norm.x()), T(plane_unit_norm.y()), T(plane_unit_norm.z()));
-		residual[0] = norm.dot(point_w) + T(negative_OA_dot_norm);
+		residual[0] = norm.dot(point_w) + T(negative_OA_dot_norm);//求解点到平面的距离
 		return true;
 	}
 
